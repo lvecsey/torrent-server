@@ -8,3 +8,20 @@ storage drive, for serving up torrent files. No authentication is introduced
 here so it is up to the surrounding network or management layer to determine
 which .torrent files make it onto or off the server.
 
+
+You want to make sure you add torrent_server=ad.dr.re.ss to your kernel
+command line options (as part of your pxelinux configuration) in the APPEND=
+block for the included init script to start the btpd daemon with a proper
+public facing IP address.
+
+It's a good idea to give it the IP so that regardless of whether the software
+is run on a private address space, it will still broadcast the true public
+facing IP.
+
+
+You want to put an injections/authorized_keys2 file in place with a couple
+of your ssh public keys (~/.ssh/id_dsa.pub contents) so that you can log
+into the system, once it boots.
+
+Also specify env/output_img to contain the path name to the initrd image
+to output as the first line of that file.
