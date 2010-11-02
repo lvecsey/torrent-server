@@ -1,0 +1,10 @@
+GNU/Linux bootable initrd image for implementing a torrent server.
+
+This uses the btpd daemon but perhaps in the future it may use rtorrent or
+a libtorrent variant, to support magnet links.
+
+The idea is to boot up remotely over a network and then mount a larger 2tb+
+storage drive, for serving up torrent files. No authentication is introduced
+here so it is up to the surrounding network or management layer to determine
+which .torrent files make it onto or off the server.
+

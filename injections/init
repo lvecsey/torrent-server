@@ -1,0 +1,176 @@
+#!/bin/bash
+
+#
+# For smartd monitoring, probably a remote machine should log in
+# occasionally and run smartctl. This way nothing is stored on the target
+# disk being monitored.
+#
+
+lib_modules='/lib/modules/'`uname -r`
+
+mount -t proc proc /proc
+
+mount -t sysfs sysfs /sys
+
+cp -a /dev /dev-core
+
+mount -t tmpfs udev /dev
+cp -a /dev-core/* /dev
+mount -t devpts devpts /dev/pts
+echo Starting udevd for firmware availability.
+udevd --daemon
+
+echo Using lib_modules="$lib_modules"
+
+lspci
+
+# sky2 module is popular
+insmod "$lib_modules"'/kernel/drivers/net/sky2.ko'
+
+# Realtek Semiconductor RTL8111/8168B PCI Express Gigabit Ethernet Controller (rev 03)
+insmod "$lib_modules"'/kernel/drivers/net/mii.ko'
+insmod "$lib_modules"'/kernel/drivers/net/r8169.ko'
+
+# broadcom gigabit net extream
+
+insmod "$lib_modules"'/kernel/drivers/net/tg3.ko'
+
+# Maybe we should just extract the network_module= in the /proc/cmdline
+
+echo Checking if we bail out at Phase I
+
+cmdline=`cat /proc/cmdline`
+
+for x in $cmdline
+do
+    case $x in
+	phase=*)
+	proc_phase="${x//phase=}"
+	;;
+	use_interface=*)
+	ethx="${x//use_interface=}"
+	;;
+	application_tftp_server=*)
+	tftp_server_ip="${x//application_tftp_server=}"
+	;;
+	torrent_server=*)
+	torrent_server_ip="${x//torrent_server=}"
+	;;
+	web_support_server=*)
+	web_support_ip="${x//web_support_server=}"
+	;;
+	storage_tftp_server=*)
+	write_tftp_server_ip="${x//storage_tftp_server=}"
+	;;
+	single)
+	    echo Executing a temporary shell because since single mode was set as kernel parameter.
+	    /bin/bash
+	;;
+    esac
+done
+
+	if [ "$proc_phase" == "I" ]; then
+
+	    lspci
+	    echo 'Starting a shell to match phase I; exit to continue booting.'
+	    /bin/bash
+
+	fi
+
+echo No, we keep going.
+
+echo Entering Phase II
+
+if [ "$ethx" == "" ]; then
+    ethx=eth0
+    echo No use_interface specified on cmdline, defaulting to eth0.
+fi
+
+echo Sleeping a second.
+
+sleep 1
+
+echo Using network interface "$ethx"
+
+dhclient "$ethx"
+
+echo Setting wake on lan, just to be sure.
+
+ethtool -s "$ethx" wol g
+
+echo Lauching reboot service in background.
+
+nice --adjustment=45 tcpsvd -v -l default 0.0.0.0 7502 ./reboot-if.sh &
+
+echo Starting upsmon, it should go into background.
+
+upsmon
+retval="$?"
+
+echo upsmon returned "$retval"
+
+if [ "$proc_phase" == "II" ]; then
+
+    lspci -vb
+    ifconfig "$ethx"
+    echo 'Starting a shell to match phase II; exit to continue booting.'
+    /bin/bash
+
+fi
+
+echo No, we keep going.
+
+echo Entering Phase III
+
+echo Starting sshd server for good measure, with nice priority.
+nice --adjustment=40 /usr/sbin/sshd
+
+export DISPLAY=:0.0
+export LC_ALL=C
+
+# Activating storage application
+
+# 00:1f.2 SATA controller: Intel Corporation N10/ICH7 Family SATA AHCI Controller (rev 01)
+# 00:1f.1 IDE interface: Intel Corporation 82801G (ICH7 Family) IDE Controller (rev 01)
+
+insmod "$lib_modules"'/kernel/drivers/scsi/st.ko'
+insmod "$lib_modules"'/kernel/drivers/ata/libahci.ko'
+insmod "$lib_modules"'/kernel/drivers/ata/ahci.ko'
+
+echo Sleeping for about 5 seconds.
+
+sleep 5
+
+/sbin/fsck.ext3 -n /dev/sda1
+retval="$?"
+
+echo fsck returned with "$retval"
+
+mkdir /mnt/torrent
+
+mount /dev/sda1 /mnt/torrent
+retval="$?"
+
+echo mount returned "$retval"
+
+loop_application () {
+
+while [ ! -e /stop-btpd ]; do
+
+echo Running foreground btpd for /mnt/torrent
+
+/root/btpd-git/bin/btpd --bw-in 0 --bw-out 325 \
+--ip "$torrent_server_ip" --max-peers 10 -p 6881 \
+-d /mnt/torrent --no-daemon
+
+echo Sleeping 5 seconds.
+sleep 5
+done
+
+}
+
+loop_application
+
+echo 'Starting a shell, the last one; Use upsmon -c fsd to power down system.'
+
+/bin/bash
