@@ -90,6 +90,10 @@ echo Sleeping a second.
 
 sleep 1
 
+echo Starting localhost network interface
+
+ifconfig lo
+
 echo Using network interface "$ethx"
 
 dhclient "$ethx"
